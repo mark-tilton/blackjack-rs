@@ -32,36 +32,71 @@ impl fmt::Display for Card {
     }
 }
 
+struct Deck {
+    cards: Vec<Card>,
+}
+
+impl Deck {
+    fn new() -> Deck {
+        let mut cards: Vec<Card> = Vec::new();
+        for suit in &SUITS {
+            for rank in &RANKS {
+                cards.push(Card {
+                    rank: String::from(rank.0),
+                    suit: String::from(*suit),
+                    val: rank.1,
+                });
+            }
+        }
+        Deck { cards: cards }
+    }
+
+    fn draw(&mut self) -> Result<Card, &str> {
+        match self.cards.len() {
+            0 => Err("Not enough cards in the deck!"),
+            _ => {
+                let card_index = rand::thread_rng().gen_range(0, self.cards.len());
+                Ok(self.cards.remove(card_index))
+            }
+        }
+    }
+}
+
 enum Action {
     Hit,
     Stay,
 }
 
-// Represents a player for the scope of a single game
 struct Player {
     name: String,
     hand: Vec<Card>,
     stayed: bool,
-    action: fn(&Player, &[Player]) -> Action,
 }
 
 impl Player {
-    fn new(name: &str, action: fn(&Player, &[Player]) -> Action) -> Player {
+    fn new(name: &str) -> Player {
         Player {
             name: String::from(name),
             hand: Vec::new(),
             stayed: false,
-            action: action,
         }
     }
 
-    fn take_action(&self, game_state: &[Player]) -> Action {
-        (self.action)(self, game_state)
+    fn get_value(&self) -> u32 {
+        let mut value = self.hand.iter().map(|x| x.val).fold(0, |x, y| x + y);
+        let ace_count = self.hand.iter().filter(|x| x.val == 1).count() as u32;
+        for _ in 0..ace_count {
+            let new_value = value + 10;
+            if new_value > 21 {
+                break;
+            }
+            value = new_value;
+        }
+        value
     }
 
-    // TODO: Add ace handling
-    fn get_value(&self) -> u32 {
-        self.hand.iter().map(|x| x.val).fold(0, |x, y| x + y)
+    fn draw(&mut self, deck: &mut Deck) {
+        self.hand.push(deck.draw().expect("The deck is empty"))
     }
 }
 
@@ -85,115 +120,77 @@ fn main() {
     let mut playing = true;
     while playing {
         // Initialize the deck
-        let mut deck: Vec<Card> = Vec::new();
-        populate_deck(&mut deck); // Maybe this should be deck::new()?
+        let mut deck = Deck::new();
 
         // Initialize the players
-        let dealer = Player::new("dealer", |p, _| match p.get_value().cmp(&17) {
-            Ordering::Less => Action::Hit,
-            _ => Action::Stay,
-        });
-        // ------------------------------
+        let mut dealer = Player::new("dealer");
+        let mut player = Player::new("player");
 
-        // player drew ace of clubs
-        // dealer drew five of hearts
-
-        // player has a total of 10,
-        // six of hearts
-        // three of diamonds
-        // ace of clubs
-
-        // dealer has a total of 16,
-        // nine of spades
-        // two of clubs
-        // five of hearts
-        // Hit or stay? (h/s)
-        // h
-        // ------------------------------
-        // player drew four of diamonds
-        // dealer drew jack of diamonds
-
-        // player has a total of 14,
-        // six of hearts
-        // three of diamonds
-        // ace of clubs
-        // four of diamonds
-
-        // dealer has a total of 26,
-        // nine of spades
-        // two of clubs
-        // five of hearts
-        // jack of diamonds
-
-        // I would benefit here from having an immutible game state.
-
-        let player = Player::new("player", |_, game_state| {
-            // Display the state of the game.
-            for player in game_state.iter() {
-                println!();
-                println!("{}", player);
+        // This is nice because it only holds the mutable references for the length of the loop.
+        for player in [&mut player, &mut dealer].iter_mut() {
+            for _ in 0..2 {
+                player.draw(&mut deck);
             }
-            println!();
-            let input = prompt_input("Hit or stay? (h/s)", "Please type h or s", |s| match s {
-                "h" => Some(Action::Hit),
-                "s" => Some(Action::Stay),
-                _ => None,
-            });
-            println!();
-            println!("------------------------------");
-            println!();
-            input
-        });
-        let mut players = [player, dealer]; // Move players into the players array
-
-        // Initialize the player's hands
-        for player in players.iter_mut() {
-            match draw_card(&mut deck) {
-                Ok(card) => player.hand.push(card),
-                Err(msg) => println!("{}", msg), // TODO: Handle this case better.
-            };
         }
 
         // Game loop
-        let winners = 'game_loop: loop {
-            // What are the players going to do?
-            // I spent a long time trying to come up with a way to do this without a range here.
-            // The problem is that if the player loses, it needs to return the opponent.
-            for i in 0..players.len() {
-                let player = &players[i];
-                match player.get_value().cmp(&21) {
-                    Ordering::Equal => break 'game_loop vec![&*player],
-                    Ordering::Greater => break 'game_loop vec![&players[1 - i]],
-                    _ => {}
-                }
-                if player.stayed {
-                    continue;
-                }
-                match player.take_action(&players) {
-                    Action::Hit => {
-                        match draw_card(&mut deck) {
-                            Ok(card) => {
-                                println!("{} drew {}", player.name, card);
-                                players[i].hand.push(card);
-                            }
-                            Err(msg) => println!("{}", msg), // TODO: Handle this case better.
-                        };
-                    }
-                    Action::Stay => players[i].stayed = true,
-                }
+        let winners = loop {
+            if player.get_value() == 21 && dealer.get_value() == 21 {
+                break vec![&player, &dealer];
             }
-            if players.iter().all(|x| x.stayed) {
-                match players[0].get_value().cmp(&players[1].get_value()) {
-                    Ordering::Equal => break vec![&players[0], &players[1]],
-                    Ordering::Less => break vec![&players[1]],
-                    Ordering::Greater => break vec![&players[0]],
+
+            // I kinda wish I could consolidate these.
+            match player.get_value().cmp(&21) {
+                Ordering::Equal => break vec![&player],
+                Ordering::Greater => break vec![&dealer],
+                _ => {}
+            }
+            match dealer.get_value().cmp(&21) {
+                Ordering::Equal => break vec![&dealer],
+                Ordering::Greater => break vec![&player],
+                _ => {}
+            }
+
+            if !player.stayed {
+                // Display the state of the game.
+                for player in [&mut dealer, &mut player].iter() {
+                    println!();
+                    println!("{}", player);
+                }
+                println!();
+                let input = prompt_input("Hit or stay? (h/s)", "Please type h or s", |s| match s {
+                    "h" => Some(Action::Hit),
+                    "s" => Some(Action::Stay),
+                    _ => None,
+                });
+                match input {
+                    Action::Hit => player.draw(&mut deck),
+                    Action::Stay => player.stayed = true,
+                }
+                println!();
+                println!("------------------------------");
+                println!();
+            }
+
+            if !dealer.stayed {
+                match dealer.get_value().cmp(&17) {
+                    Ordering::Less => dealer.draw(&mut deck),
+                    _ => dealer.stayed = true,
+                };
+            }
+
+            if [&player, &dealer].iter().all(|x| x.stayed) {
+                match player.get_value().cmp(&dealer.get_value()) {
+                    Ordering::Equal => break vec![&player, &dealer],
+                    Ordering::Less => break vec![&dealer],
+                    Ordering::Greater => break vec![&player],
                 }
             }
         };
 
         println!();
-        println!("============================");
-        for player in players.iter() {
+        println!("==============================");
+        for player in [&dealer, &player].iter() {
             println!();
             println!("{}", player);
         }
@@ -237,29 +234,6 @@ fn prompt_input<T>(prompt: &str, error_text: &str, selector: fn(&str) -> Option<
                 println!("Something has gone wrong, please try again.");
                 continue;
             }
-        }
-    }
-}
-
-fn populate_deck(deck: &mut Vec<Card>) {
-    deck.clear();
-    for suit in &SUITS {
-        for rank in &RANKS {
-            deck.push(Card {
-                rank: String::from(rank.0),
-                suit: String::from(*suit),
-                val: rank.1,
-            });
-        }
-    }
-}
-
-fn draw_card(deck: &mut Vec<Card>) -> Result<Card, &str> {
-    match deck.len() {
-        0 => Err("Not enough cards in the deck!"),
-        _ => {
-            let card_index = rand::thread_rng().gen_range(0, deck.len());
-            Ok(deck.remove(card_index))
         }
     }
 }
