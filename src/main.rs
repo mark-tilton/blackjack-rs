@@ -1,7 +1,6 @@
 use rand::Rng;
 use std::cmp::Ordering;
 use std::fmt;
-use std::iter::FromIterator;
 
 static SUITS: [&str; 4] = ["spades", "clubs", "hearts", "diamonds"];
 static RANKS: [(&str, u32); 13] = [
@@ -95,24 +94,27 @@ impl Player {
         value
     }
 
-    fn draw(&mut self, deck: &mut Deck) {
-        self.hand.push(deck.draw().expect("The deck is empty"))
+    fn draw(&mut self, deck: &mut Deck, print: bool) {
+        let card = deck.draw().expect("The deck is empty");
+        if print {
+            println!("{} drew {}", self.name, card);
+        }
+        self.hand.push(card);
     }
-}
 
-impl fmt::Display for Player {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let hand = self
-            .hand
-            .iter()
-            .fold(String::new(), |s, c| s + "\n" + c.to_string().as_str());
-        write!(
-            f,
-            "{} has a total of {}, {}",
-            self.name,
-            self.get_value(),
-            hand
-        )
+    fn display(&self, hide_first: bool, show_total: bool) {
+        if show_total {
+            println!("{}: {}", self.name, self.get_value())
+        } else {
+            println!("{}:", self.name);
+        }
+        for i in 0..self.hand.len() {
+            if hide_first && i == 0 {
+                println!("    hidden");
+            } else {
+                println!("    {}", self.hand[i]);
+            }
+        }
     }
 }
 
@@ -127,9 +129,9 @@ fn main() {
         let mut player = Player::new("player");
 
         // This is nice because it only holds the mutable references for the length of the loop.
-        for player in [&mut player, &mut dealer].iter_mut() {
+        for player in [&mut dealer, &mut player].iter_mut() {
             for _ in 0..2 {
-                player.draw(&mut deck);
+                player.draw(&mut deck, false);
             }
         }
 
@@ -153,28 +155,29 @@ fn main() {
 
             if !player.stayed {
                 // Display the state of the game.
-                for player in [&mut dealer, &mut player].iter() {
-                    println!();
-                    println!("{}", player);
-                }
+                println!();
+                dealer.display(true, false);
+                println!();
+                player.display(false, true);
+
                 println!();
                 let input = prompt_input("Hit or stay? (h/s)", "Please type h or s", |s| match s {
                     "h" => Some(Action::Hit),
                     "s" => Some(Action::Stay),
                     _ => None,
                 });
-                match input {
-                    Action::Hit => player.draw(&mut deck),
-                    Action::Stay => player.stayed = true,
-                }
                 println!();
                 println!("------------------------------");
                 println!();
+                match input {
+                    Action::Hit => player.draw(&mut deck, true),
+                    Action::Stay => player.stayed = true,
+                }
             }
 
             if !dealer.stayed {
                 match dealer.get_value().cmp(&17) {
-                    Ordering::Less => dealer.draw(&mut deck),
+                    Ordering::Less => dealer.draw(&mut deck, true),
                     _ => dealer.stayed = true,
                 };
             }
@@ -192,7 +195,7 @@ fn main() {
         println!("==============================");
         for player in [&dealer, &player].iter() {
             println!();
-            println!("{}", player);
+            player.display(false, true);
         }
         println!();
 
@@ -215,6 +218,9 @@ fn main() {
                 _ => None,
             },
         );
+
+        println!();
+        println!("------------------------------");
     }
 }
 
