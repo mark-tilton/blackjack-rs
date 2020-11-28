@@ -32,7 +32,7 @@ pub struct Deck {
     cards: Vec<Card>,
 }
 impl Deck {
-    pub fn new() -> Deck {
+    pub fn new() -> Self {
         let mut cards: Vec<Card> = Vec::new();
         for suit in &SUITS {
             for rank in &RANKS {
